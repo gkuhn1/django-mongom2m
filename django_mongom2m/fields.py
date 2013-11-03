@@ -6,7 +6,7 @@ from djangotoolbox.fields import ListField, EmbeddedModelField
 
 from .manager import (MongoDBManyToManyRel, MongoDBM2MRelatedManager,
                       MongoDBM2MReverseDescriptor,
-                      MongoDBManyToManyRelationDescriptor)
+                      MongoDBManyToManyRelationDescriptor, ObjectId)
 from .utils import create_through
 
 
@@ -14,27 +14,27 @@ class MongoDBManyToManyField(models.ManyToManyField, ListField):
     """
     A generic MongoDB many-to-many field that can store embedded copies of
     the referenced objects. Inherits from djangotoolbox.fields.ListField.
-    
+
     The field's value is a MongoDBM2MRelatedManager object that works similarly to Django's
     RelatedManager objects, so you can add(), remove(), creaet() and clear() on it.
     To access the related object instances, all() is supported. It will return
     all the related instances, using the embedded copies if available.
-    
+
     If you want the 'real' related (non-embedded) model instances, call all_objs() instead.
     If you want the list of related ObjectIds, call all_refs() instead.
-    
+
     The related model will also gain a new accessor method xxx_set() to make reverse queries.
     That accessor is a MongoDBM2MReverseManager that provides an all() method to return
     a QuerySet of related objects.
-    
+
     For example, if you have an Article model with a MongoDBManyToManyField 'categories'
     that refers to Category objects, you will have these methods:
-    
+
     article.categories.all() - Returns all the categories that belong to the article
     category.article_set.all() - Returns all the articles that belong to the category
     """
     description = 'ManyToMany field with references and optional embedded objects'
-    
+
     def __init__(self, to, related_name=None, embed=False, *args, **kwargs):
         # Call Field, not super, to skip Django's ManyToManyField extra stuff
         # we don't need
@@ -69,7 +69,7 @@ class MongoDBManyToManyField(models.ManyToManyField, ListField):
         # admin/forms to work
         setattr(model, self.name,
                 MongoDBManyToManyRelationDescriptor(self, self.rel.through))
-    
+
     def contribute_to_class(self, model, name):
         self.__m2m_name = name
         # Call Field, not super, to skip Django's ManyToManyField extra stuff
@@ -78,7 +78,7 @@ class MongoDBManyToManyField(models.ManyToManyField, ListField):
         # Do the rest after resolving the 'to' relation
         add_lazy_relation(model, self, self._mm2m_to_or_name,
                           self.contribute_after_resolving)
-    
+
     def db_type(self, *args, **kwargs):
         return 'list'
 
@@ -104,7 +104,10 @@ class MongoDBManyToManyField(models.ManyToManyField, ListField):
         return models.Field.formfield(self, **defaults)
 
     def pre_save(self, model_instance, add):
-        return self.to_python(getattr(model_instance, self.attname))
+        # Return only ids when embed is false
+        if self.rel.embed:
+            return self.to_python(getattr(model_instance, self.attname))
+        return [ObjectId(value.pk) for value in self.to_python(getattr(model_instance, self.attname)).all()]
 
     def get_db_prep_lookup(self, lookup_type, value, connection,
                            prepared=False):
@@ -125,7 +128,7 @@ class MongoDBManyToManyField(models.ManyToManyField, ListField):
                                              self.rel.embed, value)
         # Let the manager to the conversion
         return value.get_db_prep_value(connection, prepared)
-    
+
     def to_python(self, value):
         # The database value is a custom MongoDB list of ObjectIds and embedded
         # models (if embed is enabled). We convert it into a

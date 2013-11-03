@@ -29,9 +29,15 @@ class MongoDBM2MReverseManager(object):
         """
         Retrieve all related objects.
         """
-        name = self.field.column + '.' + self.rel.model._meta.pk.column
+        name = self.field.column
+        if self.embed:
+            name += '.' + self.rel.model._meta.pk.column
+
         pk = ObjectId(self.rel_field.pk)
         return self.model._default_manager.raw_query({name:pk})
+
+    def get(self, *args, **kwargs):
+        return self.all().get(*args, **kwargs)
 
     def _relationship_query_set(self, model, to_instance, model_module_name,
                                 to_module_name):
